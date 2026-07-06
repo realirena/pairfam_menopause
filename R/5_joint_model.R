@@ -2,13 +2,12 @@
 rm(list=ls())
 library(rstan)
 options(mc.cores = parallel::detectCores(logical= FALSE))
-model_dir <- "U:/Documents/repos/menopause_models/R/model/survival/"
-results_dir <- "U:/Documents/repos/menopause_models/samples/"
-results_dir <- "G:/irena/lfm/samples/"
+model_dir <- "U:/Documents/repos/pairfam_menopause/"
+results_dir <- "U:/Documents/repos/pairfam_menopause/samples/"
 seed = 1028
 
-dt <- read.csv("U:/Documents/repos/menopause_models/R/data/meno_affect_06172026.csv")
-traj_dt <- read.csv("U:/Documents/repos/menopause_models/R/data/affect_traj_06172026.csv")
+dt <- read.csv("meno_affect_06172026.csv")
+traj_dt <- read.csv("affect_traj_06172026.csv")
 
 N = nrow(traj_dt)
 I = length(unique(dt$new_id))
