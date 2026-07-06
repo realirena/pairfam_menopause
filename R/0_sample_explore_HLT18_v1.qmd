@@ -1,0 +1,394 @@
+---
+title: "Exploring the menopause variables in Pairfam"
+author: "Susie Lee"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-expand: TRUE
+    number-sections: TRUE
+editor: visual
+---
+
+```{r}
+#|label: load-packages
+#|warning: false
+#|message: false
+
+library(tidyverse)
+library(haven)
+library(TraMineR)
+library(ggseqplot)
+library(lubridate)
+```
+
+## Importing the cohort 3 data
+
+```{r}
+#first set the directory to your current one getwd()
+df <- readRDS(here::here('./data/pairfam_upto14_cohort3women.rds'))
+```
+
+The imported data include all 2,597 women in the cohort 3. The HLT18 question was asked to the cohort 3 (1970-73 cohort) women who are not pregnant at the time of interview. This criterion was revised at the Wave 13 to "Female respondents from cohort 3 who are not expecting a child and who had not yet passed through menopause in the previous wave". This has an impli+cation for the patterning of answers, as we discuss later.
+
+For the HLT18 variable, a woman is asked: "The following questions concern the topic of menopause. Which of the following statements best describes your situation?" Possible answers are: noch nicht (1), erste Anzeichen (2), mitten drin (3), schon vorbei (4), but also weiss nicht (-1), nicht antworten möchten (-2), trifft nicht zu (-3). Depending on answers provided, we can either infer the beginning of perimenopause or not.
+
+Women who provided non-NA answers to the HLT18 variable were between 43 and 50 during the waves 10 to 13. Mid-40 is a typical age for perimenopause, that is, 5-10 years before menopause (the cessation of menstrual cycle.)
+
+```{r}
+hist(df$age[df$wave %in% c(10,11,12,13) & !is.na(df$hlt18)], main = "Age at interview")
+```
+
+## Identifying women lost before the Wave 10
+
+Let's first examine patterns in the prevalence of NA for the HLT18 variable. We have 1,014 (out of the initial 2,597) women with at least one non-NA answers to HLT18. Quite a lot (1,583) women have only NA for the HLT18 variable, meaning they are lost to follow-up at or before the Wave 10 when menopausal questions were introduced.
+
+```{r}
+no_hlt18 <- setdiff(unique(df$id),
+                    unique(df$id[!is.na(df$hlt18)]))
+```
+
+The attrition pattern shows that the largest drop (almost a thousand) is from the first to the second wave. There was also a gradual attrition of the sample throughout the waves.
+
+```{r}
+plot(table(df$wave))
+```
+
+All Wave 14 answers to the HLT18 variable are somehow NA. It is likely that HLT18 was not included in the Covid survey.
+
+```{r}
+sum(is.na(df$hlt18[df$wave==14])) == sum(df$wave==14)
+```
+
+Thus, the attrition during early waves and the lack of HLT18 in Wave 14 are two main sources of the NA, and the former is particularly responsible for why we only have 1,014 women who contributed at least one non-NA answers to HLT18.
+
+### Age at last interview
+
+This is to address a point from Dr. Jutta Gampe that women who dropped out at early age are not strictly right-censored, given that they were not observed during the 'risk period' (i.e., age range when the risk of entering menopause is more likely). The age at last observation for the 1,583 women distributes as follows, and 475 women were lost at or after age 40.
+
+```{r}
+no_hlt18_tb <- df %>% 
+  filter(id %in% no_hlt18) %>%
+  group_by(id) %>% 
+  summarize(age_last_interview = max(age))
+
+sum(no_hlt18_tb$age_last_interview >= 40)
+
+hist(no_hlt18_tb$age_last_interview, main = "Age at last interview")
+
+```
+
+## Pattern of answers to the HLT18 question
+
+Here, we examine patterns of answers among the 1,014 women who gave at least one non-NA answers to the HLT18 variable. These answers are: noch nicht (1), erste Anzeichen (2), mitten drin (3), schon vorbei (4), but also weiss nicht (-1), nicht antworten möchten (-2), trifft nicht zu (-3). Most women (n=765, 75.4%) had non-NA answers for all four waves from 10 to 13, but as will be discussed later the large number of -3 answers at the Wave 13 creates a challenge.
+
+```{r}
+uniquestates <- df %>%
+  zap_label() %>% 
+  zap_labels() %>%
+  filter(!is.na(hlt18)) %>%
+  group_by(id) %>%
+  reframe(
+    notyet = any(hlt18==1), 
+    start = any(hlt18 == 2),
+    transition = any(hlt18 %in% c(2,3,4)),
+    min_wave = min(wave),
+    max_wave = max(wave),
+    first_answer = hlt18[wave == min_wave],
+    last_answer = hlt18[wave == max_wave], 
+    max_state = max(hlt18),
+    min_state = min(hlt18),
+    n_unique = length(unique(hlt18)),
+    n_nonna = sum(!is.na(hlt18))) %>%
+  arrange(id)
+
+table(uniquestates$n_nonna)
+```
+
+### 1. Interval-censored: Menopausal transition observed
+
+There are 285 women who indicated 'not yet' (1) and also one of the erste Anzeichen (2), mitten drin (3), schon vorbei (4) answers.
+
+```{r}
+id_transition <- uniquestates$id[uniquestates$notyet & uniquestates$transition]  
+
+length(id_transition)
+
+transition <- df %>%    
+  zap_label() %>%   
+  zap_labels() %>%   
+  filter(!is.na(hlt18)) %>%   
+  filter(id %in% id_transition) %>%   
+  group_by(id) %>%   
+  reframe(
+    notyet = any(hlt18==1), 
+    transition = any(hlt18 %in% c(2,3,4)),
+    wave_notyet = min(wave[hlt18==1]),           
+    wave_transition = min(wave[hlt18 %in% c(2,3,4)]),         
+    transition_answer = hlt18[wave==wave_transition],           
+    notyet_earlier = wave_notyet < wave_transition)  
+
+```
+
+The onset of perimenopause would be observable within the observed period, if a woman said 'not yet' (1) followed by one of the transition answers (2,3,4). Out of the 285 women, 77% of women (n = 219) met this requirement. A vast majority of these women (n = 201) indicated "I am experiencing the first symptoms of menopause" (hlt18 = 2) as their transition answer.
+
+```{r}
+id_transition_observed <- transition$id[transition$notyet_earlier]  
+
+length(id_transition_observed)
+```
+
+#### 1-1. Uncertain interval-censored
+
+For the rest 66 women, a logical order is not established because a woman gives one of the transition answers and then later say 'not yet'. This answer pattern reflects uncertainty about their stage in menopausal transition. We could treat them either as i) right-censored at the age when they said 'not yet', ii) left-censored at youngest the age when they gave one of the 2, 3, 4 answers, or iii) interval-censored during the observed period. Given that the vast majority of these cases (n = 62) is reporting 'erste Anzeichen' (2) and then saying 'not yet' later, we tentatively treat these women as having entered perimenopause, i.e., interval-censored.
+
+```{r}
+id_transition_unobserved <- transition$id[!transition$notyet_earlier]
+
+length(id_transition_unobserved)
+
+table(transition %>% filter(!notyet_earlier) %>% select(transition_answer))
+```
+
+### 2. Right-censored
+
+There were 172 who said 'not yet' as their one and only answer. (There are no women who gave only the 'not yet' answer repeatedly.) There are additional 15 women, whose last answer is 'not yet' preceded by one of the -1,-2, or -3. We consider these 187 women together as right-censored at the age of giving the 'not yet' answer.
+
+```{r}
+notyet <- unique(df$id[df$hlt18==1]) #those who ever said 'not yet'
+
+#type 1
+id_notyet1 <- uniquestates$id[uniquestates$max_state == 1 &  uniquestates$n_unique == 1] 
+
+length(id_notyet1) #172 whose only answer is 'not yet'
+
+#type 2
+id_notyet2 <- uniquestates$id[uniquestates$max_state == 1 & uniquestates$last_answer == 1 & uniquestates$min_state < 1] 
+
+length(id_notyet2)
+```
+
+#### 2-1. Unpacking 'Not yet' paired only with -1,-2,or -3
+
+There are 250 women who said 'not yet' not as their last answer, 'and' also gave any of the weiss nicht (-1), nicht antworten möchten (-2), trifft nicht zu (-3) answers in other waves but nothing else, i.e., never one of the erste Anzeichen (2), mitten drin (3), schon vorbei (4) answers.
+
+```{r}
+id_notyet_minus <- uniquestates$id[(uniquestates$max_state == 1 & uniquestates$min_state < 1) & uniquestates$last_answer != 1]
+
+length(id_notyet_minus)
+```
+
+Given that -1, -2, -3 are not interpretable, we take age at which a woman said 'not yet' and treat the group as right-censored. The vast majority (n = 239) of these women said 'not yet' and gave only one of the -1, -2, -3 answers.
+
+```{r}
+notyet_1 <- uniquestates$id[uniquestates$max_state == 1 & uniquestates$n_unique == 2] #239
+notyet_2 <- uniquestates$id[uniquestates$max_state == 1 & uniquestates$n_unique == 3] #23
+notyet_3 <- uniquestates$id[uniquestates$max_state == 1 & uniquestates$n_unique == 4] #3
+
+length(notyet_1)
+```
+
+#### 2-2. Special cases of having -3 at Wave 13
+
+The majority (n = 237) of the 265 women said 'not yet' at one point and were assigned -3 (not applicable; 'trifft nicht zu') at Wave 13. These women are comprised of three groups. First is the 211 women who gave only -3 in addition to 1. This is a subgroup of the 239 women who paired the answer 1 with only one of the -1, -2, -3, i.e., the 'notyet_1' group identified in the code chunk above.
+
+```{r}
+#who said only 'not yet' and then said -3 as the last answer
+id_1_minus3 <- uniquestates$id[uniquestates$max_state == 1 & uniquestates$last_answer == -3 & uniquestates$n_unique == 2]
+
+length(id_1_minus3)
+```
+
+Second is the 23 women who gave -3 and one of the -1 or -2, in addition to 1 and 3. And third is the 3 women who gave all -1, -2, -3 at one point, in addition to 1. Each of the second and third groups belong to the 'notyet_2' and 'notyet_3' groups, respectively, identified in the previous code chunk. Note that all 'notyet_2' and 'notyet_3' women gave -3 as the last answer.
+
+All these 237 women said 'not yet' at one point and then were assigned 'nicht trifft zu (-3)' answer at the Wave 13, without there being any answers on the progression in menopausal transition (HLT18 = 2, 3, or even 4).
+
+One could interpret these 237 cases as perimenpause having started between when they said 'not yet' and when they were filtered (-3). Following is the reasoning. Most of the trifft nicht zu (-3) answers come from the Wave 13. When inquired, the Pairfam data team replied that a filtering condition for the menopausal questions was revised at Wave 13, from the previous "Female respondents from cohort 3 who are not expecting a child" to "Female respondents from cohort 3 who are not expecting a child and who had not yet passed through menopause in the previous wave". Since those who do not meet this condition is marked trifft nicht zu (-3), the large number of -3 in Wave 13 comes from women either i) who are expecting a child or ii) who passed through menopause in the previous wave. Given their age range, most cases would be the latter, meaning that a menopausal transition must have begun in-between the waves. Yet, we need to be careful in making this assumption, because a woman could have given an option of choosing schon vorbei (4) at the Wave 13 if she is post-menopausal, rather than being filtered out. We have inquired the data team on this issue (as of June 2025).
+
+Thus, for now, we do not treat these 237 cases as providing meaningful information on the timing of menopausal transition. Tentatively, we take the age at which a woman said 'not yet' and treat the woman as a right-censored case.
+
+##### Answer patterns
+
+Here, we briefly take a look at answer patterns of women who gave both 1 and one of the -1,-2 before giving -3 in Wave 13. I don't see any particular patterns in answering, except that most of these women have said 'not yet' twice before Wave 13. There are 2 women whose 'nicht trifft zu (-3)' was assigned before Wave 13.
+
+```{r}
+group <- uniquestates %>% 
+  filter(max_state == 1 & n_unique == 3 & last_answer == -3 & max_wave == 13) 
+
+sub_d <- df %>% 
+  filter(id %in% group$id, wave %in% c(10:13)) %>% 
+  select(id,wave,hlt18) %>% 
+  arrange(id)
+
+seq <- sub_d %>% 
+  pivot_wider(id_cols = id, 
+              names_from = wave, 
+              values_from = hlt18)
+
+actual.seq <- seqdef(seq,
+                     2:5,
+                     labels = c("Don't apply (-3)","Don't want to answer", "Don't Know", "Not yet")
+)
+
+names(actual.seq) <- c("W10","W11","W12","W13")
+actual.seq <- actual.seq %>% arrange(W10,W11,W12,W13)
+ggseqiplot(actual.seq,
+           border = TRUE)
+
+seqdplot(actual.seq,legend.prop=.3, cex.legend=1.2)
+trate <- round(seqtrate(actual.seq),2) 
+ggseqtrplot(actual.seq, x_n.dodge = 2, dss = FALSE)
+
+```
+
+### 3. Left-censored
+
+Only 2 women gave post-menopausal as their only answer, and we treat them as left-censored cases. This suggests that the data at hand mostly covers the earlier phase of menopausal transition, i.e., perimenopause.
+
+```{r}
+only_four <- uniquestates$id[uniquestates$max_state == 4 &                                            uniquestates$n_unique == 1]  
+
+length(only_four)
+```
+
+These women are part of a larger group of women (n = 266), who indicated one of the erste Anzeichen (2), mitten drin (3), schon vorbei (4) answers, without having declared 'not yet' at one point. These cases are left-censored.
+
+```{r}
+id_notyet_absent <- uniquestates$id[(!uniquestates$notyet) & uniquestates$transition]  
+
+length(id_notyet_absent)
+```
+
+### 4. Censoring type unknown
+
+There are also 6, 6, 1 women whose **only** answer was one of weiss nicht (-1), nicht antworten möchten (-2), trifft nicht zu (-3), respectively. We deem that inferring the timing of perimenopause is difficult in this small group of women.
+
+```{r}
+id_minus1_only <- uniquestates$id[uniquestates$max_state == -1 & 
+                                   uniquestates$n_unique == 1]
+id_minus2_only <- uniquestates$id[uniquestates$max_state == -2 & 
+                                   uniquestates$n_unique == 1]
+id_minus3_only <- uniquestates$id[uniquestates$max_state == -3 & 
+                                   uniquestates$n_unique == 1]
+
+length(unique(id_minus1_only))
+length(unique(id_minus2_only))
+length(unique(id_minus3_only))
+
+id_unknowns <- c(id_minus1_only, id_minus2_only, id_minus3_only)
+```
+
+Another 13 women gave a mixture of answers among -1, -2, -3.
+
+```{r}
+id_minus_mixture <- uniquestates$id[uniquestates$max_state < 0 &
+                                      uniquestates$n_unique > 1]
+
+```
+
+## Summary
+
+With the above steps, we were able to group the 988 women into different censoring types, in addition to 26 women who could not be grouped into any categories.
+
+```{r}
+identified = c(id_notyet1, id_notyet2, id_notyet_absent, id_transition_observed, id_transition_unobserved, id_notyet_minus, id_unknowns, id_minus_mixture)
+
+length(unique(identified))
+```
+
+| Code                          | n   | Description                                                                                    | Right censored                    | Left censored | Not censored / Interval-censored |     |     |     |     |     |     |     |     |     |     |
+|-----|:----|:----------|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|
+| id_notyet1, id_notyet2        | 187 | Reported 'not yet' only                                                                        | \*                                |               |                                  |     |     |     |     |     |     |     |     |     |     |
+| id_notyet_minus               | 250 | Said 'not yet' and gave -1, -2, or -3 but nothing else                                         | \*? up to age when said 'not yet' |               |                                  |     |     |     |     |     |     |     |     |     |     |
+| id_notyet_absent              | 266 | Reported 'past menopause' only OR transition codes (2, 3, 4) without having reported 'not yet' |                                   | \*            |                                  |     |     |     |     |     |     |     |     |     |     |
+| id_transition_observed        | 219 | Reported 'not yet' followed by transition codes (2, 3, 4)                                      |                                   |               | \*                               |     |     |     |     |     |     |     |     |     |     |
+| id_transition_unobserved      | 66  | Reported 'not yet' after having given transition codes (2, 3, 4)                               |                                   |               | \*?                              |     |     |     |     |     |     |     |     |     |     |
+| id_unknowns, id_minus_mixture | 13  | Only gave one of the -1, -2, -3                                                                |                                   |               |                                  |     |     |     |     |     |     |     |     |     |     |
+
+## Create a data set based on censoring types
+
+Here we create ages that demarcate the lower ('age1') and upper ('age2') ends of time intervals. We first create a new variable for age at interview in days so that time interval can be calculated with a finer scale.
+
+```{r}
+df = df %>% 
+  mutate(date_interview = as.Date(paste(inty, intm, intd, sep= '-')),
+         date_birth = as.Date(paste(doby_gen, dobm_gen, dobd, sep= '-')),
+         age_decimal = (date_interview - date_birth)/365)
+```
+
+For the right-censored group, censored is the age when they said 'not yet' for the last time. Same age is assigned for the interval opening age (age1) and closing age (age2).
+
+```{r}
+right_censored = df %>% 
+  filter(id %in% c(id_notyet1, id_notyet2) &
+         hlt18 == 1) %>%
+  select(id, age_decimal) %>%
+  group_by(id) %>%
+  reframe(age1 = max(age_decimal),
+          age2 = max(age_decimal)) %>%
+  mutate(censored_type = "right_censored")
+```
+
+For the group (n=250) said 'not yet' in addition to -1, -2, or -3 but nothing else, we tentatively take age at which a woman said 'not yet' and treat the group as right-censored.
+
+```{r}
+right_censored_tentative = df %>%   
+  filter(id %in% id_notyet_minus) %>%   
+  select(id, age_decimal, hlt18) %>%   
+  group_by(id) %>%   
+  reframe(age1 = max(age_decimal[hlt18 == 1], na.rm=T),           
+          age2 = max(age_decimal[hlt18 == 1], na.rm=T)) %>%
+  mutate(censored_type = "right_censored_tentative")
+```
+
+For the interval-censored group, age1 is when 'not yet' was first mentioned and age2 is when any of the transition codes (HLT18 = 2, 3, 4) were first noted.
+
+```{r}
+interval_censored = df %>%
+  filter(id %in% id_transition_observed) %>%
+  select(id, age_decimal, hlt18) %>%
+  group_by(id) %>%
+  reframe(age1 = min(age_decimal[hlt18 == 1], na.rm=T),
+          age2 = min(age_decimal[hlt18 %in% c(2,3,4)], na.rm=T)) %>%
+  mutate(censored_type = "interval_censored")
+```
+
+For the group (n=66) whose censoring type was uncertain, as discussed in the section 1-1, we tentatively treat them as interval-censored cases.
+
+```{r}
+interval_censored_tentative = df %>%
+   filter(id %in% id_transition_unobserved) %>%
+  select(id, age_decimal, hlt18) %>%
+  group_by(id) %>%
+  reframe(age1 = min(age_decimal[hlt18 %in% c(2,3,4)], na.rm=T),
+          age2 = min(age_decimal[hlt18 == 1], na.rm=T)) %>%
+  mutate(censored_type = "interval_censored_tentative")
+```
+
+For the left-censored group, age2 is the youngest age at which any of the transition codes (HLT18 = 2, 3, 4) were presented, and age1 could be either NA or certain age cut-off before which menopause is unlikely (ex: 35 or 40).
+
+```{r}
+left_censored = df %>%
+  filter(id %in% id_notyet_absent) %>%
+  select(id, age_decimal, hlt18) %>%
+  group_by(id) %>%
+  reframe(age1 = NA, #can be changed to 35 or 40
+          age2 = min(age_decimal[hlt18 %in% c(2,3,4)], na.rm = T)) %>%
+  mutate(censored_type = "left_censored")
+```
+
+We now combined these data into one.
+
+```{r}
+
+combined <- rbind(
+  right_censored,
+  right_censored_tentative,
+  interval_censored,
+  interval_censored_tentative,
+  left_censored)
+
+saveRDS(combined, here::here('./data/pairfam_meno_interval.rds'))
+saveRDS(combined, here::here('./data/pairfam_meno_interval_days.rds'))
+
+```
