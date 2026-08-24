@@ -87,7 +87,7 @@ model {
   matrix[N, K] eta; // latent trajectories
   
   //weibull
-  c ~ normal(1, 0.5);
+  c ~ lognormal(1,1);
   b0 ~ normal(0,1); 
   //latent factor
   lambda ~ normal(1, sigma_lambda);
