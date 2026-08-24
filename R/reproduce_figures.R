@@ -17,29 +17,59 @@ options(mc.cores = parallel::detectCores(logical = FALSE))
 # ──────────────────────────────────────────────────────────────────────────────
 # 2. PATHS & DATA LOADING
 # ──────────────────────────────────────────────────────────────────────────────
-data_dir   <- "U:/Documents/repos/menopause_models/R/"
+data_dir   <- "U:/Documents/repos/menopause_models/R"
 results_dir <- "G:/irena/lfm/samples/"
 
 # Helper for cross-platform safe paths
-data_file <- function(name) file.path(data_dir, "data", name)
+data_file <- function(name) file.path(data_dir, "data/sensitivity/", name)
 
-meno_affect_df <- read.csv(data_file("meno_affect_06172026.csv"))
-meno_srh_df    <- read.csv(data_file("meno_srh_06172026.csv"))
-affect_df      <- read.csv(data_file("affect_traj_06172026.csv"))
-srh_df         <- read.csv(data_file("srh_traj_06172026.csv"))
+meno_affect_df <- read.csv(data_file("meno_affect_07272026.csv"))
+meno_srh_df    <- read.csv(data_file("meno_srh_07272026.csv"))
+affect_df      <- read.csv(data_file("affect_traj_07272026.csv"))
+srh_df         <- read.csv(data_file("srh_traj_07272026.csv"))
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 3. STAN MODEL LOADING
 # ──────────────────────────────────────────────────────────────────────────────
 # Kept only the second vector (first was overwritten)
-sample_file_names <- c("joint_1lf_doublecov_0617_4", "joint_1lf_doublecov_0617_3",
-                       "joint_1lf_doublecov_0617_2", "joint_1lf_doublecov_0617_1")
+srh_stems    <- paste0("joint_1lf_0720_origin_shift_left_", 1:4)
+affect_stems <- paste0("2lf_doublecov_0814_shift_left_", 1:4)
 
-model_out <- read_stan_csv(file.path(results_dir, paste0(sample_file_names, ".csv")))
+srh_model_out <- read_stan_csv(file.path(results_dir, paste0(srh_stems, ".csv")))
+affect_model_out <- read_stan_csv(file.path(results_dir, paste0(affect_stems, ".csv")))
 
-# Separate draws (for plotting) from summaries (for medians/stats)
-post_draws   <- extract(model_out)
-ran_eff_sum  <- summary(model_out, pars = "ran_eff", probs = c(0.025, 0.975))$summary
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 3.1 estimate hazard ratios
+# ──────────────────────────────────────────────────────────────────────────────
+b   <- as.matrix(model_out, pars = "b_rf")     # draws x 4
+tau <- as.matrix(model_out, pars = "tau_k")    # draws x 4
+c_d <- as.numeric(as.matrix(model_out, pars = "c"))
+colnames(b); colnames(tau)   # CHECK the ordering before pairing them
+
+## one factor
+# pair each coefficient with the tau for the same effect type and factor
+std <- cbind(
+  srh_int   = b[, "b_rf[1]"] * tau[, "tau_k[1]"],
+  srh_slope   = b[, "b_rf[2]"] * tau[, "tau_k[2]"]
+)
+
+                                                                           
+# two factor
+# pair each coefficient with the tau for the same effect type and factor
+std <- cbind(
+  na_int   = b[, "b_rf[1,1]"] * tau[, "tau_k[1,1]"],
+  pa_int   = b[, "b_rf[1,2]"] * tau[, "tau_k[2,1]"],
+  na_slope = b[, "b_rf[2,1]"] * tau[, "tau_k[1,2]"],
+  pa_slope = b[, "b_rf[2,2]"] * tau[, "tau_k[2,2]"]
+)
+
+# standardized coefficients (x100, as in the tables)
+apply(std * 100, 2, quantile, c(0.025, 0.5, 0.975))
+
+# time ratios -- note the c
+apply(exp(-std * c_d), 2, quantile, c(0.025, 0.5, 0.975))
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 4. WEIBULL HELPERS & PLOTTING
@@ -55,7 +85,7 @@ make_weibull_df <- function(shape_draws, scale_draws, group_label, grid, type = 
   })
 }
 
-time_grid <- seq(30, 60)
+time_grid <- seq(1, 30)     # shifted scale, i.e. ages 31-55
 
 shared_theme <- theme_bw() +
   theme(
@@ -69,11 +99,11 @@ shared_theme <- theme_bw() +
     strip.text    = element_text(size = 14)
   )
 
-colors_1factor <- c("SRH Intercept" = "#3e821b", "Baseline" = "#F08030")
+colors_1factor <- c("SRH Intercept" = "#8653b2", "Baseline" = "#F08030")
 colors_2factor <- c("Positive Affect Slope" = "#3e821b", "Baseline" = "#F08030")
 
-weibull_plot <- function(df, y_var, y_label, color_values, facet = FALSE) {
-  p <- ggplot(df, aes(x = time, y = .data[[y_var]],
+weibull_plot <- function(df, y_var, y_label, color_values, facet = FALSE, origin_shift = 30) {
+  p <- ggplot(df, aes(x = time + origin_shift, y = .data[[y_var]],
                       group = interaction(group, draw), color = group)) +
     geom_line(alpha = 0.05, linewidth = 0.3) +
     scale_color_manual(values = color_values) +
@@ -84,16 +114,38 @@ weibull_plot <- function(df, y_var, y_label, color_values, facet = FALSE) {
   p
 }
 
+
 # ──────────────────────────────────────────────────────────────────────────────
 # 5. 1-FACTOR MODEL PLOTS
 # ──────────────────────────────────────────────────────────────────────────────
+
+# hazard for a woman one SD above average on the SRH intercept
+draws_mat <- as.matrix(srh_model_out, pars = c("b0", "b_rf", "tau_k", "c"))
+
+b0_d    <- draws_mat[, "b0"]
+b_int   <- draws_mat[, "b_rf[1]"]
+tau_int <- draws_mat[, "tau_k[1]"]
+c_d     <- draws_mat[, "c"]
+
+hazard_pbo_calc <- exp(-b0_d * c_d)
+hazard_int_calc <- exp(-(b0_d + b_int * tau_int) * c_d)
+
+### sanity check
+#diff_draws <- (hazard_int_calc - hazard_pbo_calc) * log(2)^(1/c_d)
+#quantile(diff_draws, c(0.025, 0.5, 0.975))
+
+#quantile(hazard_pbo_calc * log(2)^(1/c_d) + 30, c(0.025, 0.5, 0.975))   # expect ~46.12
+#quantile(hazard_int_calc * log(2)^(1/c_d) + 30, c(0.025, 0.5, 0.975))   # expect ~46.55
+
+
 haz_df_1f <- bind_rows(
-  make_weibull_df(post_draws$c, post_draws$hazard_int, "SRH Intercept", time_grid, "hazard"),
-  make_weibull_df(post_draws$c, post_draws$hazard_pbo, "Baseline",      time_grid, "hazard")
+  make_weibull_df(c_d, hazard_pbo_calc, "Baseline",      time_grid, "hazard"),
+  make_weibull_df(c_d, hazard_int_calc, "SRH Intercept", time_grid, "hazard")
 )
+
 surv_df_1f <- bind_rows(
-  make_weibull_df(post_draws$c, post_draws$hazard_int, "SRH Intercept", time_grid, "survival"),
-  make_weibull_df(post_draws$c, post_draws$hazard_pbo, "Baseline",      time_grid, "survival")
+  make_weibull_df(c_d, hazard_pbo_calc, "Baseline",      time_grid, "survival"),
+  make_weibull_df(c_d, hazard_int_calc, "SRH Intercept", time_grid, "survival")
 )
 
 p_haz_1f  <- weibull_plot(haz_df_1f,  "value", "Hazard of Entering Perimenopause", colors_1factor, facet = TRUE)
@@ -102,13 +154,25 @@ p_surv_1f <- weibull_plot(surv_df_1f, "value", "Probability of Not Yet Entering 
 # ──────────────────────────────────────────────────────────────────────────────
 # 6. 2-FACTOR MODEL PLOTS
 # ──────────────────────────────────────────────────────────────────────────────
+
+dm <- as.matrix(affect_model_out, pars = c("b0", "b_rf", "tau_k", "c"))
+
+b0_a   <- dm[, "b0"]
+b_pa   <- dm[, "b_rf[2,2]"]
+tau_pa <- dm[, "tau_k[2,2]"]
+c_a    <- dm[, "c"]
+
+hazard_pbo_a <- exp(-b0_a * c_a)
+hazard_pa_a  <- exp(-(b0_a + b_pa * tau_pa) * c_a)
+
+
 haz_df_2f <- bind_rows(
-  make_weibull_df(post_draws$c, post_draws$hazard_pa,  "Positive Affect Slope", time_grid, "hazard"),
-  make_weibull_df(post_draws$c, post_draws$hazard_pbo, "Baseline",              time_grid, "hazard")
+  make_weibull_df(c_a,  hazard_pa_a,  "Positive Affect Slope", time_grid, "hazard"),
+  make_weibull_df(c_a,hazard_pbo_a, "Baseline",              time_grid, "hazard")
 )
 surv_df_2f <- bind_rows(
-  make_weibull_df(post_draws$c, post_draws$hazard_pa,  "Positive Affect Slope", time_grid, "survival"),
-  make_weibull_df(post_draws$c, post_draws$hazard_pbo, "Baseline",              time_grid, "survival")
+  make_weibull_df(c_a,  hazard_pa_a,"Positive Affect Slope", time_grid, "survival"),
+  make_weibull_df(c_a, hazard_pbo_a, "Baseline",  time_grid, "survival")
 )
 
 p_haz_2f  <- weibull_plot(haz_df_2f,  "value", "Hazard of Entering Perimenopause", colors_2factor, facet = TRUE)
@@ -132,10 +196,12 @@ compute_weibull_medians <- function(h1, h2, c, label1, label2) {
        cr_interval = quantile(diff_draws, c(0.025, 0.975)))
 }
 
-compute_weibull_medians(post_draws$hazard_pbo, post_draws$hazard_int, post_draws$c, 
+# does the affect shift still come out at 0.61 with consistent extraction?
+#summary(post_srh$hazard_pbo - hazard_pbo_calc)   # should be ~0 throughout
+compute_weibull_medians(hazard_pbo_calc, hazard_int_calc, post_srh$c, 
                         "Baseline", "SRH Intercept")
-compute_weibull_medians(post_draws$hazard_pbo, post_draws$hazard_pa,  post_draws$c, 
-                        "Baseline", "PA Slope")
+
+compute_weibull_medians(hazard_pbo_a, hazard_pa_a, c_a, "Baseline", "PA Slope")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 8. INDIVIDUAL TRAJECTORY ANALYSIS
@@ -185,3 +251,67 @@ c1 <- ggplot(data = est_traj, aes(x = age, y = pos_indiv_traj, group = as.factor
 # 9. FINAL LAYOUT
 # ──────────────────────────────────────────────────────────────────────────────
 gridExtra::grid.arrange(p_surv_2f, c1, ncol = 1)
+
+
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 9a. alternative plot: plot medians
+# ──────────────────────────────────────────────────────────────────────────────
+
+make_weibull_summary <- function(shape_draws, scale_draws, group_label, grid,
+                                 type = "survival", origin_shift = 30) {
+  fn <- if (type == "hazard") weibull_hazard else weibull_survival
+
+  # rows = draws, cols = grid points
+  vals <- sapply(grid, function(t) fn(t, shape_draws, scale_draws))
+
+  data.frame(
+    group = group_label,
+    time  = grid,
+    age   = grid + origin_shift,
+    med   = apply(vals, 2, median),
+    lower = apply(vals, 2, quantile, 0.025),
+    upper = apply(vals, 2, quantile, 0.975)
+  )
+}
+
+time_grid <- seq(1, 30, by = 0.25)   # ages 31-60, finer grid for smooth curves
+
+srh_surv_summary <- bind_rows(
+  make_weibull_summary(c_d, hazard_pbo_calc, "Population average",     time_grid, "survival"),
+  make_weibull_summary(c_d, hazard_int_calc, "One SD above average",   time_grid, "survival")
+)
+
+surv_summary <- bind_rows(
+  make_weibull_summary(c_a, hazard_pbo_a, "Population average",       time_grid, "survival"),
+  make_weibull_summary(c_a, hazard_pa_a,  "One SD above average",     time_grid, "survival")
+)
+
+shared_colors <- c("Population average" = "#F08030", "One SD above average" = "#3e821b")
+
+
+g1 <- ggplot(srh_surv_summary, aes(x = age, y = med, color = group, fill = group)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2, color = NA) +
+  geom_line(linewidth = 1.1) +
+  scale_color_manual(values = shared_colors) +
+  scale_fill_manual(values = shared_colors) +
+  coord_cartesian(xlim = c(40, 56)) +
+  labs(x = NULL, y = NULL, title = "Self-rated health",
+       color = "Group", fill = "Group") +
+  shared_theme
+
+g2<- ggplot(surv_summary, aes(x = age, y = med, color = group, fill = group)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2, color = NA) +
+  geom_line(linewidth = 1.1) +
+  scale_color_manual(values = shared_colors) +
+  scale_fill_manual(values = shared_colors) +
+  coord_cartesian(xlim = c(40, 56)) +
+  labs(x = "Age", y = "Probability of Not Yet Entering Perimenopause",title = "Depressiveness",
+       color = "Group", fill = "Group") +
+  shared_theme
+
+(g1 / g2) +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "bottom",
+        plot.margin = margin(5, 5, 5, 20))
