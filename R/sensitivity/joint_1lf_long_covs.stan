@@ -32,7 +32,6 @@ data {
   vector<lower=0>[I] Tstart;
   vector<lower=0>[I] Tend;
   vector[I] cens; // indicator if censored or not 
-  matrix[I, n_cov] out_cov; 
 
 
 }
@@ -52,7 +51,6 @@ parameters {
   vector[2] b_rf; 
   real<lower=0> c;
   real b0; 
-  vector[n_cov] phi_out; 
   
 }
 
@@ -62,7 +60,7 @@ transformed parameters {
   
   Sigma_k  =  diag_pre_multiply(tau_k,Omega_k) * diag_pre_multiply(tau_k, Omega_k)';
   for(i in 1:I){
-   hazard[i] = exp(-(b0 + sum(ran_eff[i] .* b_rf) + dot_product(out_cov[i,],phi_out)) * c); // 
+   hazard[i] = exp(-(b0 + sum(ran_eff[i] .* b_rf)) * c);
   } 
 }
 
@@ -75,10 +73,11 @@ model {
   tau_k ~ cauchy(0,1); 
   S ~ cauchy(0, 2.5);
   sigma_lambda ~ cauchy(0,1); 
+  c ~ lognormal(1,1);
   lambda ~ normal(1, sigma_lambda);
+  b0 ~ normal(0,1)
   B ~ normal(0, 1);
   phi ~ normal(0,1);
-  phi_out ~ normal(0,1);
   for(i in 1:I){
     ran_eff[i] ~ multi_normal(rep_vector(0, 2), Sigma_k);
   }

@@ -98,19 +98,12 @@ model {
   
   //regression coefficients
   for(k in 1:K){
+    to_vector(b_rf[k]) ~ normal(0,1);
     B[k] ~ normal(0, 5);
     phi[k] ~ normal(0,5);
     Omega_k[k] ~ lkj_corr(1);
     tau_k[k] ~ cauchy(0,1);
   }
-  
-  ## have negative affect be drawn from normal w/ positive mean 
-  b_rf[1,1] ~ normal(1, 0.5);
-  b_rf[2,1] ~ normal(1, 0.5);
-  
-  ## have positive affect be drawn from normal w/ negative mean 
-  b_rf[1,2] ~ normal(-1, 0.5);
-  b_rf[2,2] ~ normal(-1, 0.5);
   
   //random effects
   for(i in 1:I){
