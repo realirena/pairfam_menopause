@@ -75,7 +75,7 @@ model {
   sigma_lambda ~ cauchy(0,1); 
   c ~ lognormal(1,1);
   lambda ~ normal(1, sigma_lambda);
-  b0 ~ normal(0,1)
+  b0 ~ normal(0,1);
   B ~ normal(0, 1);
   phi ~ normal(0,1);
   for(i in 1:I){
