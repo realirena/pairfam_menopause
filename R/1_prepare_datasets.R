@@ -269,6 +269,34 @@ write_pair(srh$surv,    "meno_srh")
 write_pair(affect$traj, "affect_traj")
 write_pair(srh$traj,    "srh_traj")
 
+
+
+# -----------------------------------------------------------
+### pull baseline values for Susie
+# ---- observed values at first observation ----
+baseline_srh <- srh$traj |>
+  group_by(new_id, id) |>
+  slice_min(age, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  select(id, new_id, wave, age, srh)
+
+baseline_affect <- affect$traj |>
+  group_by(new_id, id) |>
+  slice_min(age, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  select(id, new_id, wave, age,
+         all_of(affect_label_vars))     # the ten items
+
+# a summed/averaged score may be more useful than ten separate items
+baseline_affect <- baseline_affect |>
+  mutate(
+    neg_affect_mean = rowMeans(across(c(melancholy, depressed, sad, desperate, gloomy))),
+    pos_affect_mean = rowMeans(across(c(happy, good, secure, calm, enjoy)))
+  )
+
+write.csv(baseline_affect, paste0("./data/baseline/baseline_affect.csv"), row.names=FALSE)
+write.csv(baseline_srh, paste0("./data/baseline/baseline_srh.csv"), row.names=FALSE)
+
 # =============================================================================
 # Optional: bounded left-censoring intervals
 #
@@ -360,3 +388,5 @@ max(abs(cf$surv_diff), na.rm = TRUE)
 plot(cf$age, cf$surv_diff, type = "b", xlab = "Age",
      ylab = "Model minus Turnbull (survival scale)")
 abline(h = 0, lty = 2)
+
+

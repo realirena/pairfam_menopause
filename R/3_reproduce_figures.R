@@ -33,11 +33,10 @@ srh_df         <- read.csv(data_file("srh_traj_07272026.csv"))
 # ──────────────────────────────────────────────────────────────────────────────
 # Kept only the second vector (first was overwritten)
 srh_stems    <- paste0("joint_1lf_0720_origin_shift_left_", 1:4)
-affect_stems <- paste0("2lf_doublecov_0814_shift_left_", 1:4)
+affect_stems <- paste0("2lf_doublecov_0817_shift_left_", 1:4)
 
 srh_model_out <- read_stan_csv(file.path(results_dir, paste0(srh_stems, ".csv")))
 affect_model_out <- read_stan_csv(file.path(results_dir, paste0(affect_stems, ".csv")))
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 3.1 estimate hazard ratios
@@ -54,7 +53,6 @@ std <- cbind(
   srh_slope   = b[, "b_rf[2]"] * tau[, "tau_k[2]"]
 )
 
-                                                                           
 # two factor
 # pair each coefficient with the tau for the same effect type and factor
 std <- cbind(
@@ -64,12 +62,68 @@ std <- cbind(
   pa_slope = b[, "b_rf[2,2]"] * tau[, "tau_k[2,2]"]
 )
 
+> data.frame(summary(srh_model_out, pars=c("phi", "phi_out"), probs=c(0.025, 0.975))$summary)
+mean      se_mean           sd         X2.5.        X97.5.     n_eff      Rhat
+phi[1]      0.1332175901 9.587221e-04 0.0201850589  0.0933590475  0.1727231500  443.2764 1.0091040
+phi[2]      0.2254202015 1.915868e-04 0.0037139200  0.2181889250  0.2328060250  375.7802 1.0191452
+phi[3]      0.0571372761 1.555378e-03 0.0432846103 -0.0277321825  0.1414194500  774.4534 1.0046281
+phi[4]     -0.0847936083 5.201489e-03 0.0948906776 -0.2710271000  0.1056717500  332.8064 1.0177065
+phi[5]      0.2670190537 2.814379e-03 0.0544716936  0.1644856250  0.3740009250  374.6076 1.0076593
+phi_out[1]  0.0003317484 1.167080e-05 0.0007905074 -0.0012303925  0.0018962820 4587.8636 0.9997427
+phi_out[2] -0.0008075718 5.506140e-06 0.0003553944 -0.0015047055 -0.0001326176 4166.0720 1.0009115
+phi_out[3]  0.0027268711 2.561970e-05 0.0018644260 -0.0008019952  0.0063593360 5295.9296 1.0005713
+phi_out[4]  0.0039818702 3.455914e-05 0.0026455991 -0.0012517190  0.0090877403 5860.3305 1.0004828
+phi_out[5]  0.0009128265 2.610426e-05 0.0017148137 -0.0024439740  0.0043007643 4315.3027 1.0005195
+
+> data.frame(summary(affect_model_out, pars=c("phi", "phi_out"), probs=c(0.025, 0.975))$summary)
+mean      se_mean           sd         X2.5.       X97.5.      n_eff      Rhat
+phi[1,1]    0.0513312412 4.819309e-04 0.0104728189  0.0313888950 0.0716948700   472.2343 1.0072667
+phi[1,2]    0.0910373758 1.243283e-04 0.0021182563  0.0868701950 0.0951254200   290.2800 1.0151331
+phi[1,3]   -0.0217099778 5.081591e-04 0.0164356964 -0.0536973500 0.0105767225  1046.1088 1.0037062
+phi[1,4]    0.0959639372 3.251312e-03 0.0568735303 -0.0129061325 0.2125233750   305.9871 1.0081031
+phi[1,5]    0.3510258661 2.107807e-03 0.0318026049  0.2870257750 0.4127910750   227.6479 1.0260590
+phi[2,1]    0.0493220309 6.223594e-04 0.0123859890  0.0254961750 0.0739425100   396.0763 1.0029384
+phi[2,2]    0.1899921333 1.652092e-04 0.0027026739  0.1847659000 0.1954370250   267.6201 1.0130848
+phi[2,3]    0.0353050861 6.758185e-04 0.0198617365 -0.0029122850 0.0739335200   863.7226 1.0009080
+phi[2,4]   -0.0503795675 5.795071e-03 0.0815852580 -0.2077275250 0.1074905500   198.2010 1.0374429
+phi[2,5]    0.3391571060 2.931215e-03 0.0423599214  0.2564558750 0.4172348250   208.8406 1.0546477
+phi_out[1]  0.0012459543 1.126934e-05 0.0009653231 -0.0006147389 0.0032126340  7337.5021 1.0001097
+phi_out[2]  0.0003866439 1.202505e-05 0.0008489232 -0.0012418802 0.0021142540  4983.8290 0.9998286
+phi_out[3] -0.0032041948 1.738176e-05 0.0022088064 -0.0075832930 0.0009767607 16148.3458 0.9997237
+phi_out[4]  0.0034758861 2.833914e-05 0.0031870399 -0.0029158540 0.0096203702 12647.4124 0.9998977
+phi_out[5]  0.0040818599 3.976970e-05 0.0028882115 -0.0015065232 0.0098231980  5274.1618 0.9996509
 # standardized coefficients (x100, as in the tables)
 apply(std * 100, 2, quantile, c(0.025, 0.5, 0.975))
 
 # time ratios -- note the c
 apply(exp(-std * c_d), 2, quantile, c(0.025, 0.5, 0.975))
 
+
+#coefficients trade off?
+cor(as.matrix(srh_adjusted_out, pars = "b_rf"))[1,2]
+cor(as.matrix(srh_longcov_out, pars = "b_rf"))[1,2]
+
+# are the SRH random effects correlated with the survival covariates?
+re_srh <- rstan::extract(srh_adjusted_out)$ran_eff
+re_med <- apply(re_srh, c(2,3), median)
+cor(re_med[,1], dt$baseline_ed); cor(re_med[,2], dt$baseline_ed)
+cor(re_med[,1], dt$ever_smk);    cor(re_med[,2], dt$ever_smk)
+cor(re_med[,2], dt$baseline_kids)
+cor(re_med[,2], dt$baseline_marstat)
+cor(re_med[,2], dt$ethnic)
+
+obs_srh <- srh_df |>
+  group_by(new_id) |>
+  summarise(mean_srh = mean(srh), .groups = "drop")
+
+int_df <- tibble(new_id = seq_along(re_med[,1]), int = re_med[,1]) |>
+  left_join(obs_srh, by = "new_id")
+
+cor(int_df$int, int_df$mean_srh)     # expect strongly positive
+plot(int_df$int, int_df$mean_srh)
+
+ed_df <- dt |> select(new_id, baseline_ed) |> left_join(obs_srh, by = "new_id")
+cor(ed_df$baseline_ed, ed_df$mean_srh)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 4. WEIBULL HELPERS & PLOTTING
@@ -315,3 +369,139 @@ g2<- ggplot(surv_summary, aes(x = age, y = med, color = group, fill = group)) +
   plot_layout(guides = "collect") &
   theme(legend.position = "bottom",
         plot.margin = margin(5, 5, 5, 20))
+
+##### reproduce figure 3 (comparison of two women)
+set.seed(12345)
+ 
+# ---- 1. draws, kept on one extraction path so they stay aligned -------------
+ 
+# rstan::extract() permutes draws by default; as.matrix() does not. Mixing the
+# two silently misaligns iterations, so everything below uses as.matrix().
+dm  <- as.matrix(affect_model_out, pars = c("b0", "b_rf", "tau_k", "c"))
+hz  <- as.matrix(affect_model_out, pars = "hazard")
+re  <- as.matrix(affect_model_out, pars = "ran_eff")
+ 
+c_a       <- dm[, "c"]
+tau_pa_sl <- dm[, "tau_k[2,2]"]   # factor 2 (positive affect), element 2 (slope)
+ 
+stopifnot(identical(dt$new_id, sort(dt$new_id)))   # dt row order must match Stan's
+ 
+# ---- 2. each woman's posterior median PA random effects ---------------------
+ 
+# ran_eff is indexed [individual, effect type, factor]:
+#   [i,1,2] = positive affect intercept, [i,2,2] = positive affect slope
+I <- nrow(meno_affect_df)
+ head(colnames(re), 8)
+I
+nrow(meno_affect_df)
+pa_int   <- sapply(seq_len(I), function(i) median(re[, sprintf("ran_eff[%d,1,2]", i)]))
+pa_slope <- sapply(seq_len(I), function(i) median(re[, sprintf("ran_eff[%d,2,2]", i)]))
+
+# ---- 3. model-implied median onset age --------------------------------------
+
+onset_age <- function(i, probs = c(0.025, 0.5, 0.975)) {
+  quantile(hz[, sprintf("hazard[%d]", i)] * log(2)^(1 / c_a) + ORIGIN, probs)
+}
+ 
+# ---- 4. pick two comparable women -------------------------------------------
+ 
+tau_med <- median(tau_pa_sl)
+ 
+cand <- tibble(
+  new_id   = seq_len(I),
+  int      = pa_int,
+  slope    = pa_slope,
+  slope_sd = pa_slope / tau_med,          # slope in SD units
+  n_obs    = as.integer(table(traj_dt$new_id)[as.character(seq_len(I))])
+)
+ 
+# Aim for similar intercepts (near the median) but slopes about +1 and -1 SD.
+# Requiring a reasonable number of observations avoids women whose random
+# effects are mostly prior.
+int_window <- quantile(cand$int, c(0.4, 0.6))
+ 
+pick <- cand |>
+  left_join(dt |> select(new_id, baseline_kids, baseline_ed,
+                         baseline_marstat, ethnic, ever_smk), by = "new_id") |>
+  filter(between(int, int_window[1], int_window[2]), n_obs >= 8)
+
+# among candidates, find pairs matching on the binary covariates
+hi_pool <- pick |> filter(slope_sd > 0.7, slope_sd < 1.3)
+lo_pool <- pick |> filter(slope_sd < -0.7, slope_sd > -1.3)
+# then choose one from each with identical marstat / smoking / ethnicity
+# 111, 73 match on 
+woman_hi <- pick |> filter(new_id == 73)
+woman_lo  <- pick |> filter(new_id == 111)
+
+chosen <- bind_rows(woman_hi, woman_lo)
+print(chosen)
+ 
+# how far apart are they, and what onset does the model imply?
+onset <- sapply(chosen$new_id, onset_age)
+colnames(onset) <- chosen$new_id
+print(round(onset, 2))
+b0_a  <- dm[, "b0"]
+b_pa  <- dm[, "b_rf[2,2]"]
+
+# holding covariates at zero, varying only the PA slope random effect
+med_at <- function(slope_val) {
+  quantile(exp(-(b0_a + b_pa * slope_val) * c_a) * log(2)^(1/c_a) + 30,
+           c(0.025, 0.5, 0.975))
+}
+
+# ---- 5. fitted trajectories over each woman's observed ages -----------------
+ 
+est_traj <- affect_df |>
+  filter(new_id %in% chosen$new_id) |>
+  select(new_id, wave, age, age_std) |>
+  left_join(chosen |> select(new_id, int, slope, slope_sd), by = "new_id") |>
+  mutate(pa_traj = int + slope * age_std)
+ 
+onset_q <- sapply(chosen$new_id, onset_age)
+colnames(onset_q) <- chosen$new_id
+
+labels <- tibble(
+  new_id    = chosen$new_id,
+  onset_med = onset_q["50%", ],
+  lower     = onset_q["2.5%", ],
+  upper     = onset_q["97.5%", ],
+  label     = sprintf("Est. age at onset: %.1f (95%% CrI %.1f, %.1f)",
+                      onset_med, lower, upper)
+) |>
+  left_join(
+    est_traj |> group_by(new_id) |> summarise(x = max(age), y = last(pa_traj), .groups = "drop"),
+    by = "new_id"
+  )
+# ---- 6. figure --------------------------------------------------------------
+labels$x <- min(est_traj$age)
+labels$y <- c(max(est_traj$pa_traj), min(est_traj$pa_traj))
+
+ggplot(est_traj, aes(x = age, y = pa_traj,
+                     group = factor(new_id), color = factor(new_id))) +
+  geom_line(linewidth = 1.1) +
+  geom_point(size = 2) +
+  geom_vline(xintercept = mean(affect_df$age), linetype = "dashed", color = "grey50") +
+geom_text(data = labels, aes(x = x, y = y, label = label, color = factor(new_id)),
+          hjust = -0.65, size = 6, show.legend = FALSE) + 
+  scale_color_manual(values = c("#00BFC4", "#F8766D")) +
+  labs(x = "Age", y = "Positive affect (standardized)", color = NULL) +
+  theme_bw(base_size = 20) +
+  theme(legend.position = "none",
+        axis.text = element_text(size = 15))
+
+# =============================================================================
+# Checks worth running before using the figure:
+#
+#   # 1. are the two women's intercepts actually similar?
+#   chosen$int
+#
+#   # 2. how extreme are their slopes, in SD units? The original figure used
+#   #    women at roughly +5 SD and 0 SD, which is not a representative contrast.
+#   chosen$slope_sd
+#
+#   # 3. does the labelled onset differ from the posterior predictive mean that
+#   #    the earlier version used?
+#   sapply(chosen$new_id, function(i) mean(hz[, sprintf("hazard[%d]", i)] *
+#            gamma(1 + 1/c_a)) + ORIGIN)
+# =============================================================================
+ 
