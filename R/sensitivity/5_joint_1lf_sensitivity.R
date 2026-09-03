@@ -3,9 +3,9 @@ rm(list=ls())
 library(haven)
 library(rstan)
 options(mc.cores = parallel::detectCores(logical= FALSE))
-model_dir <- "U:/Documents/repos/pairfam_menopause/R/sensitivity/"
+model_dir <- "U:/Documents/repos/pairfam_menopause/stan/"
 data_dir <- "U:/Documents/repos/menopause_models/R/data/sensitivity/"
-results_dir <- "G:/irena/lfm/samples/sensitivity/long_covs/"
+results_dir <- "G:/irena/lfm/samples/sensitivity/out_covs/"
 seed = 1028
 
 dt <- read.csv(paste0(data_dir, "meno_srh_07272026.csv"))
@@ -21,11 +21,11 @@ P = 1
 
 y = traj_dt$srh
 
-compiled_model <- stan_model(paste0(model_dir, "joint_1lf_long_covs.stan"))
+compiled_model <- stan_model(paste0(model_dir, "joint_1lf_outcov.stan"))
 
 model_out <- sampling(compiled_model,
                       # include = TRUE,
-                      sample_file=paste0(results_dir, 'joint_1lf_long_covs.csv'), #writes the samples to CSV file
+                      sample_file=paste0(results_dir, 'joint_1lf_outcov.csv'), #writes the samples to CSV file
                       iter =2000,
                       warmup=1000, #BURN IN
                       chains = 4,
@@ -44,6 +44,5 @@ model_out <- sampling(compiled_model,
                         Tstart =dt$age1_s30,
                         Tend = dt$age2_s30,
                         n_cov = n_cov,
-                        other_cov = other_cov,
                         out_cov = out_cov
                       ))

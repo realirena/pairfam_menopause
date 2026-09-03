@@ -2,9 +2,9 @@
 rm(list=ls())
 library(rstan)
 options(mc.cores = parallel::detectCores(logical= FALSE))
-model_dir <- "U:/Documents/repos/pairfam_menopause/R/sensitivity/"
+model_dir <- "U:/Documents/repos/pairfam_menopause/stan/"
 data_dir <- "U:/Documents/repos/menopause_models/R/data/sensitivity/"
-results_dir <- "G:/irena/lfm/samples/sensitivity/long_covs/"
+results_dir <- "G:/irena/lfm/samples/sensitivity/out_covs/"
 seed = 1028
 
 dt <- read.csv(paste0(data_dir, "meno_affect_07272026.csv"))
@@ -23,7 +23,7 @@ P = ncol(y)
 
 
 ##  from the model 
-compiled_model <- stan_model(paste0(model_dir, "joint_2lf_long_covs.stan"))
+compiled_model <- stan_model(paste0(model_dir, "joint_2lf_outcov.stan"))
 
 model_out <- sampling(compiled_model,
                       # include = TRUE,

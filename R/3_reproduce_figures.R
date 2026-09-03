@@ -3,14 +3,15 @@
 # ──────────────────────────────────────────────────────────────────────────────
 rm(list = ls())
 set.seed(112124) # Reproducibility
-
 # tidyverse loads ggplot2, dplyr, tidyr, purrr, readr, etc.
 library(tidyverse)
 library(rstan)
 library(haven)
 library(lubridate)
 library(ggnewscale)
-library(gridExtra) # Was used but not loaded
+library(patchwork)
+library(grid)
+library(gridExtra) #
 
 options(mc.cores = parallel::detectCores(logical = FALSE))
 
@@ -18,8 +19,8 @@ options(mc.cores = parallel::detectCores(logical = FALSE))
 # 2. PATHS & DATA LOADING
 # ──────────────────────────────────────────────────────────────────────────────
 data_dir   <- "U:/Documents/repos/menopause_models/R"
-results_dir <- "G:/irena/lfm/samples/"
-
+results_dir <- "G:/irena/lfm/samples/sensitivity/lag3/"
+ORIGIN = 30
 # Helper for cross-platform safe paths
 data_file <- function(name) file.path(data_dir, "data/sensitivity/", name)
 
@@ -32,8 +33,8 @@ srh_df         <- read.csv(data_file("srh_traj_07272026.csv"))
 # 3. STAN MODEL LOADING
 # ──────────────────────────────────────────────────────────────────────────────
 # Kept only the second vector (first was overwritten)
-srh_stems    <- paste0("joint_1lf_0720_origin_shift_left_", 1:4)
-affect_stems <- paste0("2lf_doublecov_0817_shift_left_", 1:4)
+srh_stems    <- paste0("joint_1lf_0820_lag3_", 1:4)
+affect_stems <- paste0("2lf_doublecov_origin35_", 1:4)
 
 srh_model_out <- read_stan_csv(file.path(results_dir, paste0(srh_stems, ".csv")))
 affect_model_out <- read_stan_csv(file.path(results_dir, paste0(affect_stems, ".csv")))
@@ -62,41 +63,26 @@ std <- cbind(
   pa_slope = b[, "b_rf[2,2]"] * tau[, "tau_k[2,2]"]
 )
 
-> data.frame(summary(srh_model_out, pars=c("phi", "phi_out"), probs=c(0.025, 0.975))$summary)
-mean      se_mean           sd         X2.5.        X97.5.     n_eff      Rhat
-phi[1]      0.1332175901 9.587221e-04 0.0201850589  0.0933590475  0.1727231500  443.2764 1.0091040
-phi[2]      0.2254202015 1.915868e-04 0.0037139200  0.2181889250  0.2328060250  375.7802 1.0191452
-phi[3]      0.0571372761 1.555378e-03 0.0432846103 -0.0277321825  0.1414194500  774.4534 1.0046281
-phi[4]     -0.0847936083 5.201489e-03 0.0948906776 -0.2710271000  0.1056717500  332.8064 1.0177065
-phi[5]      0.2670190537 2.814379e-03 0.0544716936  0.1644856250  0.3740009250  374.6076 1.0076593
-phi_out[1]  0.0003317484 1.167080e-05 0.0007905074 -0.0012303925  0.0018962820 4587.8636 0.9997427
-phi_out[2] -0.0008075718 5.506140e-06 0.0003553944 -0.0015047055 -0.0001326176 4166.0720 1.0009115
-phi_out[3]  0.0027268711 2.561970e-05 0.0018644260 -0.0008019952  0.0063593360 5295.9296 1.0005713
-phi_out[4]  0.0039818702 3.455914e-05 0.0026455991 -0.0012517190  0.0090877403 5860.3305 1.0004828
-phi_out[5]  0.0009128265 2.610426e-05 0.0017148137 -0.0024439740  0.0043007643 4315.3027 1.0005195
-
-> data.frame(summary(affect_model_out, pars=c("phi", "phi_out"), probs=c(0.025, 0.975))$summary)
-mean      se_mean           sd         X2.5.       X97.5.      n_eff      Rhat
-phi[1,1]    0.0513312412 4.819309e-04 0.0104728189  0.0313888950 0.0716948700   472.2343 1.0072667
-phi[1,2]    0.0910373758 1.243283e-04 0.0021182563  0.0868701950 0.0951254200   290.2800 1.0151331
-phi[1,3]   -0.0217099778 5.081591e-04 0.0164356964 -0.0536973500 0.0105767225  1046.1088 1.0037062
-phi[1,4]    0.0959639372 3.251312e-03 0.0568735303 -0.0129061325 0.2125233750   305.9871 1.0081031
-phi[1,5]    0.3510258661 2.107807e-03 0.0318026049  0.2870257750 0.4127910750   227.6479 1.0260590
-phi[2,1]    0.0493220309 6.223594e-04 0.0123859890  0.0254961750 0.0739425100   396.0763 1.0029384
-phi[2,2]    0.1899921333 1.652092e-04 0.0027026739  0.1847659000 0.1954370250   267.6201 1.0130848
-phi[2,3]    0.0353050861 6.758185e-04 0.0198617365 -0.0029122850 0.0739335200   863.7226 1.0009080
-phi[2,4]   -0.0503795675 5.795071e-03 0.0815852580 -0.2077275250 0.1074905500   198.2010 1.0374429
-phi[2,5]    0.3391571060 2.931215e-03 0.0423599214  0.2564558750 0.4172348250   208.8406 1.0546477
-phi_out[1]  0.0012459543 1.126934e-05 0.0009653231 -0.0006147389 0.0032126340  7337.5021 1.0001097
-phi_out[2]  0.0003866439 1.202505e-05 0.0008489232 -0.0012418802 0.0021142540  4983.8290 0.9998286
-phi_out[3] -0.0032041948 1.738176e-05 0.0022088064 -0.0075832930 0.0009767607 16148.3458 0.9997237
-phi_out[4]  0.0034758861 2.833914e-05 0.0031870399 -0.0029158540 0.0096203702 12647.4124 0.9998977
-phi_out[5]  0.0040818599 3.976970e-05 0.0028882115 -0.0015065232 0.0098231980  5274.1618 0.9996509
 # standardized coefficients (x100, as in the tables)
 apply(std * 100, 2, quantile, c(0.025, 0.5, 0.975))
 
 # time ratios -- note the c
 apply(exp(-std * c_d), 2, quantile, c(0.025, 0.5, 0.975))
+
+# what does origin 35 imply for the median age shift?
+c_35   <- as.matrix(srh_model_out,, pars = "c")[, 1]
+b0_35  <- as.matrix(srh_model_out,, pars = "b0")[, 1]
+b_35   <- as.matrix(srh_model_out,, pars = "b_rf[1]")[, 1]
+tau_35 <- as.matrix(srh_model_out,, pars = "tau_k[1]")[, 1]
+
+med_ref <- exp(-b0_35 * c_35) * log(2)^(1/c_35) + 35
+med_1sd <- exp(-(b0_35 + b_35 * tau_35) * c_35) * log(2)^(1/c_35) + 35
+
+quantile(med_ref, c(0.025, 0.5, 0.975))          # expect ~46.1
+quantile(med_1sd - med_ref, c(0.025, 0.5, 0.975)) # expect ~0.42
+
+summary(srh_model_out, pars=c("c"))$summary
+summary(affect_model_out, pars=c("c"))$summary
 
 
 #coefficients trade off?
@@ -228,7 +214,7 @@ surv_df_2f <- bind_rows(
   make_weibull_df(c_a,  hazard_pa_a,"Positive Affect Slope", time_grid, "survival"),
   make_weibull_df(c_a, hazard_pbo_a, "Baseline",  time_grid, "survival")
 )
-
+## save as 800 x 350
 p_haz_2f  <- weibull_plot(haz_df_2f,  "value", "Hazard of Entering Perimenopause", colors_2factor, facet = TRUE)
 p_surv_2f <- weibull_plot(surv_df_2f, "value", "Probability of Not Yet Entering Perimenopause", colors_2factor)
 
@@ -251,10 +237,6 @@ compute_weibull_medians <- function(h1, h2, c, label1, label2) {
 }
 
 # does the affect shift still come out at 0.61 with consistent extraction?
-#summary(post_srh$hazard_pbo - hazard_pbo_calc)   # should be ~0 throughout
-compute_weibull_medians(hazard_pbo_calc, hazard_int_calc, post_srh$c, 
-                        "Baseline", "SRH Intercept")
-
 compute_weibull_medians(hazard_pbo_a, hazard_pa_a, c_a, "Baseline", "PA Slope")
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -305,9 +287,6 @@ c1 <- ggplot(data = est_traj, aes(x = age, y = pos_indiv_traj, group = as.factor
 # 9. FINAL LAYOUT
 # ──────────────────────────────────────────────────────────────────────────────
 gridExtra::grid.arrange(p_surv_2f, c1, ncol = 1)
-
-
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 9a. alternative plot: plot medians
@@ -365,12 +344,19 @@ g2<- ggplot(surv_summary, aes(x = age, y = med, color = group, fill = group)) +
        color = "Group", fill = "Group") +
   shared_theme
 
+g1 <- g1 + labs(y = "Survival probability")
+g2 <- g2 + labs(y = "Survival probability")
+
+
 (g1 / g2) +
   plot_layout(guides = "collect") &
   theme(legend.position = "bottom",
         plot.margin = margin(5, 5, 5, 20))
 
-##### reproduce figure 3 (comparison of two women)
+
+# ────────────────────────────────────────────────────────────────────────────── 
+##### 10: reproduce figure 3 (comparison of two women)
+# ──────────────────────────────────────────────────────────────────────────────
 set.seed(12345)
  
 # ---- 1. draws, kept on one extraction path so they stay aligned -------------
@@ -384,7 +370,7 @@ re  <- as.matrix(affect_model_out, pars = "ran_eff")
 c_a       <- dm[, "c"]
 tau_pa_sl <- dm[, "tau_k[2,2]"]   # factor 2 (positive affect), element 2 (slope)
  
-stopifnot(identical(dt$new_id, sort(dt$new_id)))   # dt row order must match Stan's
+stopifnot(identical(meno_affect_df$new_id, sort(meno_affect_df$new_id)))   # dt row order must match Stan's
  
 # ---- 2. each woman's posterior median PA random effects ---------------------
  
@@ -412,7 +398,7 @@ cand <- tibble(
   int      = pa_int,
   slope    = pa_slope,
   slope_sd = pa_slope / tau_med,          # slope in SD units
-  n_obs    = as.integer(table(traj_dt$new_id)[as.character(seq_len(I))])
+  n_obs    = as.integer(table(affect_df$new_id)[as.character(seq_len(I))])
 )
  
 # Aim for similar intercepts (near the median) but slopes about +1 and -1 SD.
@@ -421,7 +407,7 @@ cand <- tibble(
 int_window <- quantile(cand$int, c(0.4, 0.6))
  
 pick <- cand |>
-  left_join(dt |> select(new_id, baseline_kids, baseline_ed,
+  left_join(meno_affect_df |> select(new_id, baseline_kids, baseline_ed,
                          baseline_marstat, ethnic, ever_smk), by = "new_id") |>
   filter(between(int, int_window[1], int_window[2]), n_obs >= 8)
 
@@ -488,6 +474,20 @@ geom_text(data = labels, aes(x = x, y = y, label = label, color = factor(new_id)
   theme_bw(base_size = 20) +
   theme(legend.position = "none",
         axis.text = element_text(size = 15))
+
+### alternate without color: 
+ggplot(est_traj, aes(x = age, y = pa_traj, group = factor(new_id))) +
+  geom_line(aes(linetype = factor(new_id)), linewidth = 1.1, color = "black") +
+  geom_point(size = 2, color = "black") +
+  geom_vline(xintercept = mean(affect_df$age), linetype = "dashed", color = "grey50") +
+  geom_text(data = labels, aes(x = x, y = y, label = label),
+            hjust = -0.65, size = 6, color = "black") +
+  scale_linetype_manual(values = c("solid", "dotted")) +
+  labs(x = "Age", y = "Positive affect (standardized)") +
+  theme_bw(base_size = 20) +
+  theme(legend.position = "none",
+        axis.text = element_text(size = 15))
+### save as 1100 x 900
 
 # =============================================================================
 # Checks worth running before using the figure:

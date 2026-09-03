@@ -314,6 +314,7 @@ add_bounded_cols <- function(surv, a_min_age = 40, origin = 30) {
   surv
 }
 
+
 # affect$surv <- add_bounded_cols(affect$surv, a_min_age = 40, origin = 30)
 # srh$surv    <- add_bounded_cols(srh$surv,    a_min_age = 40, origin = 30)
 
