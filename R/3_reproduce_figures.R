@@ -12,14 +12,14 @@ library(ggnewscale)
 library(patchwork)
 library(grid)
 library(gridExtra) #
-
+library(ggrepel)
 options(mc.cores = parallel::detectCores(logical = FALSE))
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 2. PATHS & DATA LOADING
 # ──────────────────────────────────────────────────────────────────────────────
 data_dir   <- "U:/Documents/repos/menopause_models/R"
-results_dir <- "G:/irena/lfm/samples/sensitivity/lag3/"
+results_dir <- "G:/irena/lfm/samples/"
 ORIGIN = 30
 # Helper for cross-platform safe paths
 data_file <- function(name) file.path(data_dir, "data/sensitivity/", name)
@@ -33,8 +33,8 @@ srh_df         <- read.csv(data_file("srh_traj_07272026.csv"))
 # 3. STAN MODEL LOADING
 # ──────────────────────────────────────────────────────────────────────────────
 # Kept only the second vector (first was overwritten)
-srh_stems    <- paste0("joint_1lf_0820_lag3_", 1:4)
-affect_stems <- paste0("2lf_doublecov_origin35_", 1:4)
+srh_stems <- paste0("joint_1lf_0720_origin_shift_left_", 1:4)
+affect_stems    <- paste0("2lf_doublecov_0814_shift_left_", 1:4)
 
 srh_model_out <- read_stan_csv(file.path(results_dir, paste0(srh_stems, ".csv")))
 affect_model_out <- read_stan_csv(file.path(results_dir, paste0(affect_stems, ".csv")))
@@ -68,6 +68,19 @@ apply(std * 100, 2, quantile, c(0.025, 0.5, 0.975))
 
 # time ratios -- note the c
 apply(exp(-std * c_d), 2, quantile, c(0.025, 0.5, 0.975))
+
+### for the outcome covariates:
+phi <- as.matrix(model_out, pars = "phi_out")
+c_d <- as.numeric(as.matrix(model_out, pars = "c"))
+
+colnames(phi)   # confirm the order matches out_cov's columns
+
+# coefficients as-is, x100 to match the tables' convention
+apply(phi * 100, 2, quantile, c(0.025, 0.5, 0.975))
+
+# time ratios -- c still applies, since the hazard is exp(-lp * c)
+apply(exp(-phi * c_d), 2, quantile, c(0.025, 0.5, 0.975))
+
 
 # what does origin 35 imply for the median age shift?
 c_35   <- as.matrix(srh_model_out,, pars = "c")[, 1]
@@ -221,23 +234,43 @@ p_surv_2f <- weibull_plot(surv_df_2f, "value", "Probability of Not Yet Entering 
 # ──────────────────────────────────────────────────────────────────────────────
 # 7. MEDIAN & DIFFERENCE CALCULATIONS (DRY principle)
 # ──────────────────────────────────────────────────────────────────────────────
-compute_weibull_medians <- function(h1, h2, c, label1, label2) {
-  med1 <- median(h1 * (-log(0.5))^(1/c))
-  med2 <- median(h2 * (-log(0.5))^(1/c))
-  diff_draws <- h2 * (-log(0.5))^(1/c) - h1 * (-log(0.5))^(1/c)
+compute_weibull_medians <- function(h1, h2, c, label1, label2, origin = 0) {
+  t1 <- h1 * (-log(0.5))^(1/c) + origin
+  t2 <- h2 * (-log(0.5))^(1/c) + origin
+  diff_draws <- t2 - t1
   
-  cat(sprintf("Median age (%s): %.2f\n", label1, med1))
-  cat(sprintf("Median age (%s): %.2f\n", label2, med2))
-  cat(sprintf("Difference: %.2f\n", med2 - med1))
-  cat(sprintf("95%% CrI: [%.2f, %.2f]\n\n", 
+  med1     <- median(t1)
+  med2     <- median(t2)
+  diff_med <- median(diff_draws)
+  
+  cat(sprintf("Median age (%s): %.2f [%.2f, %.2f]\n", label1, med1,
+              quantile(t1, 0.025), quantile(t1, 0.975)))
+  cat(sprintf("Median age (%s): %.2f [%.2f, %.2f]\n", label2, med2,
+              quantile(t2, 0.025), quantile(t2, 0.975)))
+  cat(sprintf("Difference: %.2f [%.2f, %.2f]\n\n", diff_med,
               quantile(diff_draws, 0.025), quantile(diff_draws, 0.975)))
   
-  list(med1 = med1, med2 = med2, diff = med2 - med1, 
-       cr_interval = quantile(diff_draws, c(0.025, 0.975)))
+  list(
+    med1      = quantile(t1, c(0.025, 0.5, 0.975)),
+    med2      = quantile(t2, c(0.025, 0.5, 0.975)),
+    diff      = quantile(diff_draws, c(0.025, 0.5, 0.975))
+  )
 }
-
 # does the affect shift still come out at 0.61 with consistent extraction?
-compute_weibull_medians(hazard_pbo_a, hazard_pa_a, c_a, "Baseline", "PA Slope")
+compute_weibull_medians(hazard_pbo_a, hazard_pa_a, c_a, "Baseline", "PA Slope", origin = 30)
+
+### SRH, for completeness: 
+dm_s <- as.matrix(srh_model_out, pars = c("b0", "b_rf", "tau_k", "c"))
+b0_s    <- dm_s[, "b0"]
+b_int   <- dm_s[, "b_rf[1]"]
+tau_int <- dm_s[, "tau_k[1]"]
+c_s     <- dm_s[, "c"]
+
+hazard_pbo_s <- exp(-b0_s * c_s)
+hazard_int_s <- exp(-(b0_s + b_int * tau_int) * c_s)
+
+compute_weibull_medians(hazard_pbo_s, hazard_int_s, c_s,
+                        "Baseline", "SRH Intercept", origin = 30)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 8. INDIVIDUAL TRAJECTORY ANALYSIS
@@ -355,7 +388,7 @@ g2 <- g2 + labs(y = "Survival probability")
 
 
 # ────────────────────────────────────────────────────────────────────────────── 
-##### 10: reproduce figure 3 (comparison of two women)
+##### 10: reproduce figure 2 (comparison of two women)
 # ──────────────────────────────────────────────────────────────────────────────
 set.seed(12345)
  
@@ -369,7 +402,8 @@ re  <- as.matrix(affect_model_out, pars = "ran_eff")
  
 c_a       <- dm[, "c"]
 tau_pa_sl <- dm[, "tau_k[2,2]"]   # factor 2 (positive affect), element 2 (slope)
- 
+
+
 stopifnot(identical(meno_affect_df$new_id, sort(meno_affect_df$new_id)))   # dt row order must match Stan's
  
 # ---- 2. each woman's posterior median PA random effects ---------------------
@@ -390,7 +424,10 @@ onset_age <- function(i, probs = c(0.025, 0.5, 0.975)) {
 }
  
 # ---- 4. pick two comparable women -------------------------------------------
- 
+dm <- as.matrix(affect_model_out, pars = c("B[2]", "phi[2,1]", "phi[2,2]",
+                                           "phi[2,3]", "phi[2,4]", "phi[2,5]","b0", "b_rf", "tau_k", "c"))
+B_pa   <- median(dm[, "B[2]"])
+
 tau_med <- median(tau_pa_sl)
  
 cand <- tibble(
@@ -400,24 +437,28 @@ cand <- tibble(
   slope_sd = pa_slope / tau_med,          # slope in SD units
   n_obs    = as.integer(table(affect_df$new_id)[as.character(seq_len(I))])
 )
- 
-# Aim for similar intercepts (near the median) but slopes about +1 and -1 SD.
+
+ # Aim for similar intercepts (near the median) but slopes about +1 and -1 SD.
 # Requiring a reasonable number of observations avoids women whose random
 # effects are mostly prior.
 int_window <- quantile(cand$int, c(0.4, 0.6))
  
 pick <- cand |>
   left_join(meno_affect_df |> select(new_id, baseline_kids, baseline_ed,
-                         baseline_marstat, ethnic, ever_smk), by = "new_id") |>
-  filter(between(int, int_window[1], int_window[2]), n_obs >= 8)
+                         baseline_marstat, ethnic, ever_smk), by = "new_id")
 
 # among candidates, find pairs matching on the binary covariates
 hi_pool <- pick |> filter(slope_sd > 0.7, slope_sd < 1.3)
 lo_pool <- pick |> filter(slope_sd < -0.7, slope_sd > -1.3)
-# then choose one from each with identical marstat / smoking / ethnicity
-# 111, 73 match on 
-woman_hi <- pick |> filter(new_id == 73)
-woman_lo  <- pick |> filter(new_id == 111)
+
+chosen <- bind_rows(hi_pool, lo_pool)
+chosen |> select(new_id, int, slope_sd,  n_obs)
+
+
+# 2 and 83 have similar intercepts, and same signed slopes - 83 is decreasing faster
+woman_hi <- pick |> filter(new_id == 76)
+woman_lo  <- pick |> filter(new_id == 287)
+
 
 chosen <- bind_rows(woman_hi, woman_lo)
 print(chosen)
@@ -434,7 +475,6 @@ med_at <- function(slope_val) {
   quantile(exp(-(b0_a + b_pa * slope_val) * c_a) * log(2)^(1/c_a) + 30,
            c(0.025, 0.5, 0.975))
 }
-
 # ---- 5. fitted trajectories over each woman's observed ages -----------------
  
 est_traj <- affect_df |>
@@ -443,6 +483,32 @@ est_traj <- affect_df |>
   left_join(chosen |> select(new_id, int, slope, slope_sd), by = "new_id") |>
   mutate(pa_traj = int + slope * age_std)
  
+# alternative: plot the women's trajectories (not just the random deviations)
+phi_pa <- apply(dm[, grep("^phi", colnames(dm))], 2, median)
+long_cov_names <- c("nkids", "yeduc", "mar_stat", "ethnic", "ever_smk")
+
+cov_fixed <- affect_df |>
+  group_by(new_id) |> slice(1) |> ungroup() |>
+  summarise(across(all_of(long_cov_names), mean)) |> as.matrix()
+
+cov_contrib_fixed <- as.numeric(cov_fixed %*% phi_pa)
+
+est_traj <- affect_df |>
+  filter(new_id %in% chosen$new_id) |>
+  left_join(chosen |> select(new_id, int, slope), by = "new_id") |>
+  mutate(eta_pa = B_pa * age_std + cov_contrib_fixed + int + slope * age_std)
+
+# population-average line at the two women's shared covariate values
+cov_vals <- est_traj |> filter(new_id == chosen$new_id[1]) |> slice(1) |>
+  select(all_of(long_cov_names)) |> as.matrix()
+
+
+pop_line <- tibble(
+  age     = seq(min(est_traj$age), max(est_traj$age), by = 0.5),
+  age_std = (age - mean(affect_df$age)) / sd(affect_df$age),
+  eta_pa  = B_pa * age_std + cov_contrib_fixed
+)
+
 onset_q <- sapply(chosen$new_id, onset_age)
 colnames(onset_q) <- chosen$new_id
 
@@ -453,40 +519,73 @@ labels <- tibble(
   upper     = onset_q["97.5%", ],
   label     = sprintf("Est. age at onset: %.1f (95%% CrI %.1f, %.1f)",
                       onset_med, lower, upper)
-) |>
+)
+
+# position each label with its own curve, rather than by row order
+# labels <- labels |>
+#   left_join(
+#     est_traj |> group_by(new_id) |> summarise(y = last(eta_pa), .groups = "drop"),
+#     by = "new_id"
+#   ) |>
+#   mutate(x = min(est_traj$age))
+
+# label anchor points plus where each arrow should land on its curve
+labels <- labels |>
   left_join(
-    est_traj |> group_by(new_id) |> summarise(x = max(age), y = last(pa_traj), .groups = "drop"),
+    est_traj |> group_by(new_id) |>
+      summarise(x_end = max(age), y_end = last(eta_pa), .groups = "drop"),
     by = "new_id"
   )
-# ---- 6. figure --------------------------------------------------------------
-labels$x <- min(est_traj$age)
-labels$y <- c(max(est_traj$pa_traj), min(est_traj$pa_traj))
 
-ggplot(est_traj, aes(x = age, y = pa_traj,
+# place labels somewhere clear, then draw the connectors
+labels$x <- 38
+labels$y <- c(3.15, 2.55)     # adjust to taste
+
+
+
+ggplot(est_traj, aes(x = age, y = eta_pa,
                      group = factor(new_id), color = factor(new_id))) +
+  geom_line(data = pop_line, aes(x = age, y = eta_pa), inherit.aes = FALSE,
+            linetype = "dashed", color = "grey40", linewidth = 1) +
   geom_line(linewidth = 1.1) +
   geom_point(size = 2) +
-  geom_vline(xintercept = mean(affect_df$age), linetype = "dashed", color = "grey50") +
-geom_text(data = labels, aes(x = x, y = y, label = label, color = factor(new_id)),
-          hjust = -0.65, size = 6, show.legend = FALSE) + 
+  geom_vline(xintercept = mean(affect_df$age), linetype = "dotted", color = "grey50") +
+  geom_text(data = labels, aes(x = x, y = y, label = label, color = factor(new_id)),
+            hjust = -0.65, size = 6, show.legend = FALSE) +
   scale_color_manual(values = c("#00BFC4", "#F8766D")) +
-  labs(x = "Age", y = "Positive affect (standardized)", color = NULL) +
+  labs(x = "Age", y = "Positive affect", color = NULL) +
   theme_bw(base_size = 20) +
   theme(legend.position = "none",
         axis.text = element_text(size = 15))
 
 ### alternate without color: 
-ggplot(est_traj, aes(x = age, y = pa_traj, group = factor(new_id))) +
+ggplot(est_traj, aes(x = age, y = eta_pa, group = factor(new_id))) +
+    geom_line(data = pop_line, aes(x = age, y = eta_pa), inherit.aes = FALSE,
+            linetype = "dashed", color = "grey40", linewidth = 1) +
   geom_line(aes(linetype = factor(new_id)), linewidth = 1.1, color = "black") +
   geom_point(size = 2, color = "black") +
-  geom_vline(xintercept = mean(affect_df$age), linetype = "dashed", color = "grey50") +
-  geom_text(data = labels, aes(x = x, y = y, label = label),
-            hjust = -0.65, size = 6, color = "black") +
+  scale_x_continuous(name = "Age"
+               #      ,sec.axis = sec_axis(~ (. - 41.73) / 2.96, name = "Standardized age")
+                     ) +
+  #geom_vline(xintercept = mean(affect_df$age), linetype = "twodash", color = "grey50") +
+  # geom_text(data = labels, aes(x = x, y = y, label = label),
+  #           hjust = -0.65, size = 6, show.legend = FALSE) +
+  coord_cartesian(xlim = c(mean(affect_df$age), NA)) + 
+  geom_label_repel(data = labels,
+                 aes(x = x_end, y = y_end, label = label),
+                 nudge_x = -1, nudge_y = c(0.15, -0.15),
+                 segment.color = "grey40", segment.size = 0.4,
+                 label.size = NA, fill = NA,
+                 size = 5, inherit.aes = FALSE) + 
+  #annotate("text", x = 41.73, y = mean(range(est_traj$eta_pa)),
+        # label = "Sample mean age", angle = 90, vjust = -0.5,hjust = 1.2,
+        # size = 4, color = "grey40") + 
   scale_linetype_manual(values = c("solid", "dotted")) +
   labs(x = "Age", y = "Positive affect (standardized)") +
   theme_bw(base_size = 20) +
   theme(legend.position = "none",
-        axis.text = element_text(size = 15))
+        axis.text = element_text(size = 15),
+        plot.margin = margin(5, 15, 5, 5))
 ### save as 1100 x 900
 
 # =============================================================================
