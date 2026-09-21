@@ -33,7 +33,7 @@ srh_df         <- read.csv(data_file("srh_traj_07272026.csv"))
 # 3. STAN MODEL LOADING
 # ──────────────────────────────────────────────────────────────────────────────
 # Kept only the second vector (first was overwritten)
-srh_stems <- paste0("joint_1lf_0720_origin_shift_left_", 1:4)
+srh_stems <- paste0("joint_1lf_mean_model_", 1:4)
 affect_stems    <- paste0("2lf_doublecov_0814_shift_left_", 1:4)
 
 srh_model_out <- read_stan_csv(file.path(results_dir, paste0(srh_stems, ".csv")))
